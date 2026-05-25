@@ -13,6 +13,7 @@ __pycache__/
 .env.*
 frontend/.env.local
 ~$*.docx
+HR Agent_Test Observations_V1_5 May 26.docx
 
 # Uploads and extracted policy text
 docs/
