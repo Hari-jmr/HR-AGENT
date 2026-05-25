@@ -15,5 +15,8 @@ frontend/.env.local
 ~$*.docx
 
 # Uploads and extracted policy text
+docs/
+old/
+policies/
 policies/extracted/
 policies/pdfs/
