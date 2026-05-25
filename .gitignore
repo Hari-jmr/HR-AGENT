@@ -1,0 +1,19 @@
+# QA credentials — never commit
+qa_credentials.txt
+
+# Exports — contain employee data, share with QA directly
+exports/
+helper/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+.env.*
+frontend/.env.local
+~$*.docx
+
+# Uploads and extracted policy text
+policies/extracted/
+policies/pdfs/

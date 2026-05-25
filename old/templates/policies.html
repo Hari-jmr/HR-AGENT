@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMR Policies & Guides</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+
+        .top-bar {
+            background: rgba(15,23,42,0.95);
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            padding: 16px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+        .top-bar h1 {
+            color: #60a5fa;
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+        .top-bar .nav-links { display: flex; gap: 12px; }
+        .nav-link {
+            padding: 8px 16px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 8px;
+            color: #cbd5e1;
+            font-size: 13px;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+        .nav-link:hover {
+            background: rgba(96,165,250,0.1);
+            border-color: rgba(96,165,250,0.2);
+            color: #60a5fa;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 32px 24px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 24px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            padding-bottom: 0;
+        }
+        .tab-btn {
+            padding: 12px 20px;
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            color: #64748b;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .tab-btn:hover { color: #94a3b8; }
+        .tab-btn.active {
+            color: #60a5fa;
+            border-bottom-color: #60a5fa;
+        }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #f1f5f9;
+            margin: 24px 0 12px;
+            padding-left: 12px;
+            border-left: 3px solid #3b82f6;
+        }
+        .section-title:first-child { margin-top: 0; }
+
+        .policy-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .policy-card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 10px;
+            padding: 16px;
+            transition: all 0.2s;
+        }
+        .policy-card:hover {
+            background: rgba(255,255,255,0.06);
+            border-color: rgba(96,165,250,0.2);
+        }
+        .policy-card .icon {
+            font-size: 20px;
+            margin-bottom: 8px;
+        }
+        .policy-card h3 {
+            font-size: 14px;
+            color: #f1f5f9;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .policy-card .meta {
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        .guide-card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 12px;
+        }
+        .guide-card h3 {
+            font-size: 15px;
+            color: #60a5fa;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .guide-card .steps {
+            font-size: 13px;
+            line-height: 1.7;
+            color: #cbd5e1;
+            white-space: pre-line;
+        }
+
+        .leave-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 10px;
+        }
+        .leave-card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 10px;
+            padding: 14px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .leave-card .dot {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .leave-card h4 { font-size: 14px; color: #f1f5f9; font-weight: 500; }
+
+        .info-box {
+            background: rgba(96,165,250,0.08);
+            border: 1px solid rgba(96,165,250,0.15);
+            border-radius: 10px;
+            padding: 16px 20px;
+            margin: 16px 0;
+            font-size: 13px;
+            color: #93c5fd;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <div class="top-bar">
+        <h1>📚 JMR Policies & Guides</h1>
+        <div class="nav-links">
+            <a href="/chat" class="nav-link">💬 Chat Assistant</a>
+            <a href="/logout" class="nav-link">Sign Out</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('policies')">📜 Company Policies</button>
+            <button class="tab-btn" onclick="switchTab('guides')">📖 ERP Guides</button>
+            <button class="tab-btn" onclick="switchTab('leaves')">🏖️ Leave Types</button>
+        </div>
+
+        <!-- POLICIES TAB -->
+        <div id="tab-policies" class="tab-content active">
+            <div class="info-box">
+                These are the company policies and guidelines applicable to all JMR Group employees.
+                For any queries, ask the <a href="/chat" style="color:#60a5fa;">Chat Assistant</a> or contact HR.
+            </div>
+
+            <div class="section-title">Human Resource Policies</div>
+            <div class="policy-grid">
+                <div class="policy-card"><div class="icon">📘</div><h3>HR Employee Handbook V15</h3><div class="meta">Comprehensive employee handbook</div></div>
+                <div class="policy-card"><div class="icon">⚖️</div><h3>JMR Code of Conduct</h3><div class="meta">Ethics & conduct guidelines</div></div>
+                <div class="policy-card"><div class="icon">🏆</div><h3>Rewards & Recognition</h3><div class="meta">Recognition programs & criteria</div></div>
+                <div class="policy-card"><div class="icon">✈️</div><h3>Travel Process & Guidelines</h3><div class="meta">Travel procedures & reimbursement</div></div>
+                <div class="policy-card"><div class="icon">🤝</div><h3>Employee Referral Policy</h3><div class="meta">Referral program & bonus structure</div></div>
+                <div class="policy-card"><div class="icon">🛡️</div><h3>POSH Policy V2</h3><div class="meta">Prevention of Sexual Harassment</div></div>
+                <div class="policy-card"><div class="icon">💼</div><h3>Per Diem & Asset Usage</h3><div class="meta">Per diem rates & company assets</div></div>
+                <div class="policy-card"><div class="icon">⚠️</div><h3>Disciplinary Rules & Procedures</h3><div class="meta">Disciplinary action framework</div></div>
+                <div class="policy-card"><div class="icon">📢</div><h3>Communication Protocol</h3><div class="meta">Official communication channels</div></div>
+                <div class="policy-card"><div class="icon">💻</div><h3>JMR IT Policy</h3><div class="meta">IT usage & security guidelines</div></div>
+                <div class="policy-card"><div class="icon">🏥</div><h3>GMC Policies & Benefits 2025-26</h3><div class="meta">Group Medical Coverage & benefits</div></div>
+            </div>
+
+            <div class="section-title">Admin Policies</div>
+            <div class="policy-grid">
+                <div class="policy-card"><div class="icon">🏢</div><h3>JMR Administration Policy</h3><div class="meta">General admin procedures</div></div>
+            </div>
+
+            <div class="section-title">Quality Management</div>
+            <div class="policy-grid">
+                <div class="policy-card"><div class="icon">🔒</div><h3>Information Classification Policy</h3><div class="meta">ISO/ISMS data classification</div></div>
+            </div>
+
+            <div class="section-title">Information Security (30 policies)</div>
+            <div class="policy-grid">
+                <div class="policy-card"><div class="icon">🔐</div><h3>Acceptable Use Policy</h3><div class="meta">IT resource usage rules</div></div>
+                <div class="policy-card"><div class="icon">🔑</div><h3>Access Control Policy</h3><div class="meta">Authorization procedures</div></div>
+                <div class="policy-card"><div class="icon">🛡️</div><h3>Antivirus Policy</h3><div class="meta">Malware protection</div></div>
+                <div class="policy-card"><div class="icon">🗑️</div><h3>Assets Disposal Policy</h3><div class="meta">Secure IT asset disposal</div></div>
+                <div class="policy-card"><div class="icon">👆</div><h3>Biometric Management</h3><div class="meta">Attendance system management</div></div>
+                <div class="policy-card"><div class="icon">🔄</div><h3>Business Continuity</h3><div class="meta">BCP & disaster recovery</div></div>
+                <div class="policy-card"><div class="icon">📹</div><h3>CCTV Security Policy</h3><div class="meta">Surveillance guidelines</div></div>
+                <div class="policy-card"><div class="icon">🖥️</div><h3>Clear Desk & Screen</h3><div class="meta">Workspace security</div></div>
+                <div class="policy-card"><div class="icon">🖱️</div><h3>End User Computing</h3><div class="meta">Computing device guidelines</div></div>
+                <div class="policy-card"><div class="icon">🌐</div><h3>Firewall & Network</h3><div class="meta">Network access & firewall rules</div></div>
+                <div class="policy-card"><div class="icon">🚨</div><h3>Incident Response Plan</h3><div class="meta">Security incident procedures</div></div>
+                <div class="policy-card"><div class="icon">📋</div><h3>ISMS Policy</h3><div class="meta">Security management framework</div></div>
+                <div class="policy-card"><div class="icon">⚡</div><h3>IT Risk Management</h3><div class="meta">Risk assessment & mitigation</div></div>
+                <div class="policy-card"><div class="icon">💻</div><h3>Laptop Security</h3><div class="meta">Laptop handling requirements</div></div>
+                <div class="policy-card"><div class="icon">📱</div><h3>Mobile Device Policy</h3><div class="meta">BYOD & MDM guidelines</div></div>
+                <div class="policy-card"><div class="icon">🏢</div><h3>Physical Security</h3><div class="meta">Building access & security</div></div>
+                <div class="policy-card"><div class="icon">🔐</div><h3>Privileged Access</h3><div class="meta">Admin account management</div></div>
+                <div class="policy-card"><div class="icon">📊</div><h3>Risk Assessment</h3><div class="meta">Risk assessment methodology</div></div>
+                <div class="policy-card"><div class="icon">📀</div><h3>Software Licensing</h3><div class="meta">License management</div></div>
+                <div class="policy-card"><div class="icon">👤</div><h3>User Account Mgmt</h3><div class="meta">Account lifecycle management</div></div>
+            </div>
+        </div>
+
+        <!-- ERP GUIDES TAB -->
+        <div id="tab-guides" class="tab-content">
+            <div class="info-box">
+                Step-by-step guides for common HR operations in JMRi ERP (Odoo).
+                You can also ask the <a href="/chat" style="color:#60a5fa;">Chat Assistant</a> for help with any of these.
+            </div>
+
+            <div class="guide-card">
+                <h3>🔐 How to Login to JMRi ERP</h3>
+                <div class="steps">• Public Address: https://oerp.jmrinfotech.com/
+• Local Address: http://192.168.1.80:8069/
+• Username: Your JMR Email Id
+• Password: Your own Password</div>
+            </div>
+
+            <div class="guide-card">
+                <h3>🔑 How to Change & Reset Password</h3>
+                <div class="steps">Method 1: Login → Top right menu → Preferences → "Change Password"
+Method 2: Odoo web page → Enter email → "Reset Password" → Link sent to email</div>
+            </div>
+
+            <div class="guide-card">
+                <h3>📋 How to Apply Leaves</h3>
+                <div class="steps">1. Go to: Human Resources → Leaves → Leave Request
+2. Choose Leave Type (Casual, Sick, Emergency, Maternity, Paternity, etc.)
+3. Set Start Date and End Date (Partial Leave option available)
+4. Enter Reason for Leave
+5. Click Save and Confirm
+6. Leave Request Number auto-generated, email sent to Manager
+7. Manager approves/refuses at: Leaves → Leave Request To Approve</div>
+            </div>
+
+            <div class="guide-card">
+                <h3>⏰ How to Apply Attendance Regularisation</h3>
+                <div class="steps">⚠️ Can ONLY be applied for Absent Days
+1. Go to: Human Resources → Leaves → Attendance Regularisation → Create
+2. Choose Type: On Duty or Work From Home
+3. Set Start Date and End Date
+4. Enter Reason for Regularisation
+5. Click Save and Confirm → Email sent to Manager</div>
+            </div>
+
+            <div class="guide-card">
+                <h3>🔄 How to Apply Comp-Off Request</h3>
+                <div class="steps">1. Go to: Human Resources → Leaves → Comp-Off Request → Create
+2. Choose Type: Weekend Days or Holidays
+3. Choose Comp-Off Date
+4. Enter Reason, Save and Confirm
+5. Once Approved: Leaves will NOT be deducted</div>
+            </div>
+
+            <div class="guide-card">
+                <h3>📊 How to Create Timesheet Entries</h3>
+                <div class="steps">Step 1 — Create:
+  Human Resources → Time Tracking → My Current Timesheet → Create
+  Select period (weekly/monthly), set dates, Add Lines for projects, enter hours.
+
+Step 2 — Submit: Save & Submit to Manager
+
+Step 3 — Manager Approval:
+  Human Resources → Time Tracking → Timesheets to Validate
+  Manager can Approve or Refuse.</div>
+            </div>
+
+            <div class="guide-card">
+                <h3>✈️ How to Apply Travel Request</h3>
+                <div class="steps">1. Project Manager creates Resource Allocation → Trip ID generated
+2. Email notification sent to Employee (CC: Project Manager)
+3. HR Travel Desk creates Travel Card at: HR → Travel Desk → Travel Card
+4. Employee creates Travel Request linked to Travel Card
+5. Update Travel Card info on return (Returned or Lost)</div>
+            </div>
+
+            <div class="guide-card">
+                <h3>📝 How to Create Manpower Requisition (MRF)</h3>
+                <div class="steps">1. Go to: Human Resources → Recruitment → Resource Requisition → Create
+2. Fill Requested Date & Target Closure Date
+3. Select Job Position, enter Number of Positions
+4. Add: Job Description, Qualifications, Skills
+5. Save & Submit MRF → Tracking ID: "MRF/15-16/MM/000"</div>
+            </div>
+
+            <div class="guide-card">
+                <h3>🎯 How to Create Employee Lead</h3>
+                <div class="steps">1. Go to: Human Resource → Lead Generation → Lead → Create
+2. Enter Subject describing the lead info
+3. Account Name is Mandatory (check existing or create new)
+4. Fill: Contact Name, Email, Phone, Address details
+5. Complete Opportunity Information and Save</div>
+            </div>
+        </div>
+
+        <!-- LEAVE TYPES TAB -->
+        <div id="tab-leaves" class="tab-content">
+            <div class="info-box">
+                The following leave types are configured in the JMR HR system. Use the
+                <a href="/chat" style="color:#60a5fa;">Chat Assistant</a> to check your leave balance.
+            </div>
+
+            <div class="leave-grid">
+                <div class="leave-card"><div class="dot" style="background:#3b82f6"></div><h4>Casual Leave (CL)</h4></div>
+                <div class="leave-card"><div class="dot" style="background:#ef4444"></div><h4>Sick Leave (SL)</h4></div>
+                <div class="leave-card"><div class="dot" style="background:#f59e0b"></div><h4>Emergency Leave</h4></div>
+                <div class="leave-card"><div class="dot" style="background:#ec4899"></div><h4>Maternity Leave</h4></div>
+                <div class="leave-card"><div class="dot" style="background:#8b5cf6"></div><h4>Paternity Leave</h4></div>
+                <div class="leave-card"><div class="dot" style="background:#06b6d4"></div><h4>Adoption Leave</h4></div>
+                <div class="leave-card"><div class="dot" style="background:#f97316"></div><h4>Birthday Leave</h4></div>
+                <div class="leave-card"><div class="dot" style="background:#22c55e"></div><h4>CompOff Leave</h4></div>
+                <div class="leave-card"><div class="dot" style="background:#a855f7"></div><h4>Celebration Holiday</h4></div>
+                <div class="leave-card"><div class="dot" style="background:#14b8a6"></div><h4>Education Leave</h4></div>
+                <div class="leave-card"><div class="dot" style="background:#64748b"></div><h4>Optional Holiday</h4></div>
+            </div>
+
+            <div style="margin-top:24px">
+                <div class="section-title">How Leave Balance is Calculated</div>
+                <div class="guide-card">
+                    <div class="steps">• <strong>Allocated</strong> = Total days allocated (type='add', state='validate')
+• <strong>Used</strong> = Total days taken (type='remove', state='validate')
+• <strong>Balance</strong> = Allocated − Used
+
+Each leave type is tracked separately. Ask the chatbot: "What is my leave balance?" to see all your balances.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    function switchTab(tab) {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        document.getElementById('tab-' + tab).classList.add('active');
+        event.target.classList.add('active');
+    }
+    </script>
+</body>
+</html>

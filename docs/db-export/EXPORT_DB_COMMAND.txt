@@ -1,0 +1,10 @@
+Run this when DB network access is available:
+
+Option A - local pg_dump installed:
+set PGPASSWORD=Sal@usr4
+pg_dump -h 192.168.1.52 -p 5432 -U user1 -d mar_9_26 -F c -f mar_9_26.dump
+
+Option B - using Docker (if Docker Desktop is running):
+docker run --rm -e PGPASSWORD=Sal@usr4 -v C:\\JMRHRMS:/dump postgres:15-alpine pg_dump -h 192.168.1.52 -p 5432 -U user1 -d mar_9_26 -F c -f /dump/mar_9_26.dump
+
+After dump is created, re-zip the project and include mar_9_26.dump.

@@ -1,0 +1,741 @@
+:root {
+  color-scheme: dark;
+  --bg: #151515;
+  --sidebar: #171717;
+  --surface: #202020;
+  --surface-soft: #1c1c1c;
+  --surface-strong: #242424;
+  --line: #2c2c2c;
+  --line-soft: #262626;
+  --text: #f5f5f5;
+  --muted: #a4a4a4;
+  --muted-soft: #7e7e7e;
+  --white: #ffffff;
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans), sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+.ow-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  background: var(--bg);
+}
+
+.ow-sidebar {
+  background: var(--sidebar);
+  border-right: 1px solid var(--line-soft);
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.ow-sidebar-header,
+.ow-nav-item,
+.ow-user-card,
+.ow-main-toolbar,
+.ow-toolbar-actions,
+.ow-model-lockup,
+.ow-composer-footer {
+  display: flex;
+  align-items: center;
+}
+
+.ow-sidebar-header {
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ow-sidebar-group {
+  display: grid;
+  gap: 8px;
+}
+
+.ow-sidebar-title,
+.ow-sidebar-subtitle,
+.ow-toolbar-label,
+.ow-suggestions-title,
+.ow-message-name {
+  color: var(--muted-soft);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ow-sidebar-title,
+.ow-toolbar-label,
+.ow-suggestions-title {
+  font-weight: 600;
+}
+
+.ow-sidebar-title,
+.ow-toolbar-label {
+  margin: 0;
+}
+
+.ow-sidebar-subtitle {
+  padding-top: 4px;
+}
+
+.ow-nav-item {
+  gap: 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  padding: 7px 8px;
+  text-align: left;
+}
+
+.ow-nav-item:hover,
+.ow-nav-item.active {
+  background: #1f1f1f;
+}
+
+.ow-nav-mark {
+  width: 14px;
+  text-align: center;
+  color: #d7d7d7;
+}
+
+.ow-nav-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #d1d1d1;
+  opacity: 0.85;
+}
+
+.ow-nav-dot.square {
+  border-radius: 2px;
+}
+
+.ow-sidebar-spacer {
+  flex: 1;
+}
+
+.ow-user-card {
+  gap: 12px;
+  padding: 10px 8px;
+}
+
+.ow-user-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #f0aa2b;
+  color: #151515;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ow-user-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ow-user-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ow-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.ow-centered-main {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+
+.ow-centered-main.guest {
+  padding-top: 20px;
+}
+
+.ow-center-stack {
+  width: min(640px, 100%);
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+  transform: translateY(-7vh);
+}
+
+.ow-center-stack.guest {
+  width: min(560px, 100%);
+  transform: none;
+}
+
+.ow-loading {
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.ow-model-lockup {
+  gap: 12px;
+  justify-content: center;
+}
+
+.ow-model-lockup h1 {
+  margin: 0;
+  font-size: clamp(2rem, 3vw, 2.7rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.ow-composer {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  box-shadow: var(--shadow);
+}
+
+.ow-composer input {
+  width: 100%;
+  border: 0;
+  outline: none;
+  color: var(--text);
+  background: transparent;
+}
+
+.ow-composer input:focus {
+  box-shadow: inset 0 0 0 1px #3a3a3a;
+}
+
+.ow-auth-button,
+.ow-send-button,
+.ow-toolbar-button,
+.ow-suggestion-item {
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.ow-auth-button,
+.ow-toolbar-button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #252525;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.ow-auth-button {
+  padding: 10px 16px;
+  justify-self: end;
+}
+
+.ow-error-text {
+  margin: 0;
+  color: #f0a2a2;
+  font-size: 13px;
+}
+
+.ow-success-text {
+  margin: 0;
+  color: #aee0b0;
+  font-size: 13px;
+}
+
+.ow-auth-modal {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 30;
+}
+
+.ow-auth-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.58);
+}
+
+.ow-auth-dialog {
+  position: relative;
+  width: min(420px, calc(100vw - 32px));
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: #1f1f1f;
+  box-shadow: var(--shadow);
+}
+
+.ow-auth-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ow-auth-dialog-header h2,
+.ow-auth-dialog p {
+  margin: 0;
+}
+
+.ow-auth-dialog p {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.ow-auth-dialog input {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: #181818;
+  color: var(--text);
+  outline: none;
+}
+
+.ow-auth-dialog input:focus {
+  box-shadow: inset 0 0 0 1px #3a3a3a;
+}
+
+.ow-close-button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ow-suggestions {
+  width: min(420px, 100%);
+  display: grid;
+  gap: 6px;
+}
+
+.ow-suggestion-item {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.ow-suggestion-item:hover {
+  background: #1d1d1d;
+}
+
+.ow-suggestion-item strong,
+.ow-suggestion-item span {
+  display: block;
+}
+
+.ow-suggestion-item strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ow-suggestion-item span {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.ow-main-toolbar {
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 24px 10px;
+}
+
+.ow-main-toolbar.guest {
+  padding-bottom: 0;
+}
+
+.ow-main-toolbar.only-actions {
+  justify-content: flex-end;
+}
+
+.ow-main-toolbar strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ow-toolbar-actions {
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ow-mode-pill {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ow-toolbar-button {
+  padding: 8px 12px;
+}
+
+.ow-empty-state {
+  padding-top: 8px;
+}
+
+.ow-chat-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ow-chat-compose-wrap {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 8px 24px 10px;
+  background: linear-gradient(180deg, rgba(21, 21, 21, 0.98), rgba(21, 21, 21, 0.88), rgba(21, 21, 21, 0));
+}
+
+.ow-chat-compose-wrap.bottom {
+  top: auto;
+  bottom: 0;
+  padding: 10px 24px 18px;
+  background: linear-gradient(0deg, rgba(21, 21, 21, 0.98), rgba(21, 21, 21, 0.9), rgba(21, 21, 21, 0));
+}
+
+.ow-composer {
+  padding: 14px 14px 10px;
+}
+
+.ow-composer input {
+  padding: 4px 0 14px;
+  font-size: 15px;
+}
+
+.ow-composer input::placeholder {
+  color: var(--muted-soft);
+}
+
+.ow-guest-composer-field {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--muted-soft);
+  text-align: left;
+  padding: 4px 0 14px;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.ow-composer-footer {
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.ow-send-button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--white);
+  color: #111111;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ow-send-button:disabled,
+.ow-auth-button:disabled,
+.ow-toolbar-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ow-message-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 24px 12px;
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.ow-message-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
+.ow-message-scroll::-webkit-scrollbar-thumb {
+  background: #2e2e2e;
+  border-radius: 999px;
+}
+
+.ow-panel-page {
+  flex: 1;
+  padding: 10px 24px 28px;
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+
+.ow-panel-loading {
+  padding: 24px;
+  color: var(--muted);
+}
+
+.ow-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.ow-panel-header strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ow-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.ow-panel-grid-tight {
+  gap: 12px;
+}
+
+.ow-panel-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface-soft);
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.ow-panel-card-wide,
+.ow-panel-card-full {
+  grid-column: 1 / -1;
+}
+
+.ow-section-heading {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.ow-panel-copy {
+  color: #e1e1e1;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.ow-chip-list {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ow-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #242424;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.ow-panel-list {
+  display: grid;
+  gap: 10px;
+}
+
+.ow-panel-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #242424;
+  font-size: 13px;
+}
+
+.ow-panel-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ow-upload-form {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ow-upload-drop {
+  flex: 1;
+  min-width: min(360px, 100%);
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+  border: 1px dashed #3b3b3b;
+  border-radius: 18px;
+  background: var(--surface-soft);
+  cursor: pointer;
+}
+
+.ow-upload-drop input {
+  width: 100%;
+  color: var(--muted);
+}
+
+.ow-upload-button {
+  align-self: center;
+}
+
+.ow-upload-empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.ow-message {
+  max-width: min(840px, 100%);
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.ow-message.user {
+  justify-self: end;
+  background: var(--surface-strong);
+}
+
+.ow-message-body {
+  margin-top: 6px;
+  color: #e1e1e1;
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.ow-thinking-row {
+  display: flex;
+  gap: 6px;
+  padding: 2px 4px;
+}
+
+.ow-thinking-row span {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #cfcfcf;
+  animation: ow-pulse 1.2s infinite ease-in-out;
+}
+
+.ow-thinking-row span:nth-child(2) {
+  animation-delay: 0.14s;
+}
+
+.ow-thinking-row span:nth-child(3) {
+  animation-delay: 0.28s;
+}
+
+@keyframes ow-pulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.38;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-4px);
+  }
+}
+
+@media (max-width: 980px) {
+  .ow-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .ow-sidebar {
+    border-right: 0;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .ow-center-stack {
+    transform: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .ow-main-toolbar,
+  .ow-chat-compose-wrap,
+  .ow-panel-page,
+  .ow-message-scroll,
+  .ow-centered-main {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .ow-main-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ow-model-lockup h1 {
+    font-size: 1.9rem;
+  }
+
+  .ow-message {
+    max-width: 100%;
+  }
+
+  .ow-panel-grid {
+    grid-template-columns: 1fr;
+  }
+}

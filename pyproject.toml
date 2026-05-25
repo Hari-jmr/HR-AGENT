@@ -1,0 +1,24 @@
+[project]
+name = "jmr-hrms-chatbot"
+version = "0.1.0"
+description = "FastAPI backend and Next.js frontend for the JMR HR agent"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi==0.115.0",
+    "uvicorn[standard]==0.30.6",
+    "psycopg2-binary==2.9.10",
+    "requests==2.31.0",
+    "python-dotenv==1.0.1",
+    "passlib==1.7.4",
+    "itsdangerous==2.2.0",
+    "python-multipart==0.0.12",
+    "PyPDF2==3.0.1",
+    "gunicorn==21.2.0",
+    "langchain>=0.3.30",
+    "langchain-community>=0.3.27",
+    "langchain-openai>=0.3.35",
+    "sqlalchemy>=2.0.50",
+]
+
+[tool.uv]
+package = false

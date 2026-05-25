@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+nul
+docs/
+helper/
+old/
+check_*.py
+parse_*.py
+try_*.py
+test_*.py
+download_policies.py
+extract_*.py
+restore_and_check.py
+search_dumps.py
+ssh_live_server.py
+.dockerignore
+Dockerfile
