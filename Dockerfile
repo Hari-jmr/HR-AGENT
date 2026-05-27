@@ -5,10 +5,12 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
 	PYTHONUNBUFFERED=1
 
-# Install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip \
-	&& pip install --no-cache-dir -r requirements.txt
+# Install uv
+RUN pip install --no-cache-dir uv
+
+# Install dependencies from pyproject.toml (uv.lock used for reproducible builds)
+COPY pyproject.toml uv.lock ./
+RUN uv pip install --system --no-cache -r pyproject.toml
 
 # Copy application files
 COPY app.py .
