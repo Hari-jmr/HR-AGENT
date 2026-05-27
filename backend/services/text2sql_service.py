@@ -18,6 +18,55 @@ from backend.services.db_helper import HR_SCHEMA
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Work-location → holiday calendar mapping
+# ---------------------------------------------------------------------------
+
+# Maps hr_employee.work_location (free text) to holiday_calendar.name in the DB.
+# Only values that actually appear in hr_employee.work_location are listed here.
+# Employees in locations not listed fall back to the Karnataka calendar.
+_LOCATION_TO_CALENDAR: dict[str, str] = {
+    # Kerala
+    'calicut': 'Kerala',
+    # Karnataka (HQ + no-specific-calendar fallback)
+    'bangalore': 'Karnataka',
+    'hyderabad': 'Karnataka',   # no Telangana calendar in DB
+    'gurgaon': 'Karnataka',     # no Haryana calendar in DB
+    'noida': 'Karnataka',       # no Delhi/UP calendar in DB
+    # Other Indian states
+    'mumbai': 'Mumbai',
+    'pune': 'Maharashtra',
+    'chennai': 'Tamil Nadu',
+    # International — values seen in DB
+    'mauritius': 'Mauritius',
+    'south africa': 'South Africa',
+    'capetown': 'South Africa',
+    'egypt': 'Egypt',
+    'nigeria': 'Nigeria',
+    'ethiopia': 'Ethiopia',
+    'uganda': 'Uganda',
+    'myanmar': 'Myanmar',
+    'mayanmar': 'Myanmar',      # typo present in DB
+    'vietnam': 'Vietnam',
+    'uae': 'UAE',
+    'dubai': 'UAE',
+    'sharjah': 'UAE',
+    'philippines': 'Philippines',
+    'australia': 'Australia',
+    'sydney': 'Australia',
+    'kenya': 'Kenya',
+    'japan': 'Japan',
+    'pakistan': 'Pakistan',
+}
+
+
+def _resolve_holiday_location(work_location: str | None) -> str:
+    """Return the holiday_calendar.name for the employee's work_location."""
+    if not work_location:
+        return 'Karnataka'
+    return _LOCATION_TO_CALENDAR.get(work_location.strip().lower(), 'Karnataka')
+
+
+# ---------------------------------------------------------------------------
 # Prompt templates
 # ---------------------------------------------------------------------------
 
@@ -198,22 +247,40 @@ CONCEPT → TABLE MAPPING
              what are the upcoming holidays, is [date] a holiday, Shiva Ratri / Holi / Diwali
              / Good Friday / Dussehra / any festival name, holiday this month/year
     Tables:
-      holiday_calendar_line hcl  — full holiday list per location
+      holiday_calendar hc         — location names (Karnataka, Kerala, etc.)
+      holiday_calendar_year hcy   — year entry per location (calendar_id -> holiday_calendar)
+      holiday_calendar_line hcl   — full holiday list per location per year
         key cols: name (holiday name), date (DATE), year (TEXT e.g. '2026'),
                   restricted_holiday (FALSE=mandatory public holiday, TRUE=optional/restricted)
-      optional_holiday_line ohl  — specific optional holidays per location
-        key cols: name, date, holiday_year_id
-    ⚠ These are company-wide tables — NO employee isolation filter needed.
+                  calendar_year_id -> holiday_calendar_year
+      optional_holiday_line ohl   — specific optional holidays per location
+        key cols: name, date, holiday_year_id -> holiday_calendar_year
+    ⚠ ALWAYS filter holidays by the employee's holiday_calendar: '{holiday_location}'
+      Do NOT show Karnataka holidays to a Kerala-based employee, or vice versa.
     Search by name: WHERE hcl.name ILIKE '%shivratri%' OR hcl.name ILIKE '%shiva%'
     For current year: WHERE hcl.year = EXTRACT(YEAR FROM CURRENT_DATE)::text
-    Typical query pattern:
+    Typical query pattern (always join to filter by employee's calendar location):
       SELECT hcl.name, hcl.date,
              CASE WHEN hcl.restricted_holiday THEN 'Optional' ELSE 'Public Holiday' END AS type
       FROM holiday_calendar_line hcl
-      WHERE hcl.name ILIKE '%keyword%'
+      JOIN holiday_calendar_year hcy ON hcl.calendar_year_id = hcy.id
+      JOIN holiday_calendar hc ON hcy.calendar_id = hc.id
+      WHERE hc.name = '{holiday_location}'
+        AND hcl.name ILIKE '%keyword%'
         AND hcl.year = EXTRACT(YEAR FROM CURRENT_DATE)::text
       ORDER BY hcl.date
       LIMIT 10
+    For listing all upcoming holidays this year, omit the name filter:
+      SELECT hcl.name, hcl.date,
+             CASE WHEN hcl.restricted_holiday THEN 'Optional' ELSE 'Public Holiday' END AS type
+      FROM holiday_calendar_line hcl
+      JOIN holiday_calendar_year hcy ON hcl.calendar_year_id = hcy.id
+      JOIN holiday_calendar hc ON hcy.calendar_id = hc.id
+      WHERE hc.name = '{holiday_location}'
+        AND hcl.year = EXTRACT(YEAR FROM CURRENT_DATE)::text
+        AND hcl.date >= CURRENT_DATE
+      ORDER BY hcl.date
+      LIMIT 20
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OUTPUT RULES
@@ -233,9 +300,11 @@ OUTPUT RULES
 6. Never use hr_employee.current_ctc — it is always 0. Use hr_payroll_monthly_line.ctc_yearly.
 
 Current employee context:
-  employee_id : {employee_id}
-  name        : {name}
-  emp_code    : {emp_code}
+  employee_id      : {employee_id}
+  name             : {name}
+  emp_code         : {emp_code}
+  work_location    : {work_location}
+  holiday_calendar : {holiday_location}  ← use this to filter holiday_calendar.name
 
 Database schema:
 {schema}
@@ -305,10 +374,14 @@ def generate_sql_or_answer(
         (None, answer_string) — LLM can answer directly (general knowledge / greetings)
         (None, None)          — LLM returned DIRECT_ANSWER but no text (caller uses fallback)
     """
+    work_location = employee_info.get('work_location') or ''
+    holiday_location = _resolve_holiday_location(work_location)
     system = _SQL_SYSTEM.format(
         employee_id=employee_info['employee_id'],
         name=employee_info.get('name', ''),
         emp_code=employee_info.get('emp_code', ''),
+        work_location=work_location or 'Unknown',
+        holiday_location=holiday_location,
         schema=HR_SCHEMA,
     )
 

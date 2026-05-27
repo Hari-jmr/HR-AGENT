@@ -186,6 +186,7 @@ def get_employee_info(user_id: int):
                 e.emp_state,
                 e.pan_number,
                 e.blood_group,
+                e.work_location,
                 e.designation_id,
                 e.department_id,
                 e.parent_id,
