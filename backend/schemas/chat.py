@@ -29,4 +29,4 @@ class ChatResponse(BaseModel):
     response: str
     structured: ChatStructuredResponse
     sql: str | None = None
-    data_source: dict | None = None
+    data_source: str | None = None

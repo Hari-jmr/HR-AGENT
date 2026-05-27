@@ -32,7 +32,9 @@ def _build_structured_response(response_text: str) -> ChatStructuredResponse:
     paragraphs: list[str] = []
 
     for line in lines[1:]:
-        if ': ' in line or line.endswith('day(s)'):
+        idx = line.find(': ')
+        # List item: has "Key: value" where the key is at most 4 words (not a sentence)
+        if idx > 0 and len(line[:idx].split()) <= 4:
             list_items.append(line)
         else:
             paragraphs.append(line)
