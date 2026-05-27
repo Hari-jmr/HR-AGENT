@@ -332,6 +332,14 @@ def generate_sql_or_answer(
     if cleaned.upper().startswith('SELECT'):
         return cleaned, None
 
+    # LLM sometimes prefixes SQL with conversational text — extract just the SQL
+    select_match = re.search(r'(?i)\bSELECT\b', raw)
+    if select_match:
+        sql_candidate = _clean_sql(raw[select_match.start():])
+        if sql_candidate.upper().startswith('SELECT'):
+            logger.info('[LLM_PREAMBLE_STRIPPED] extracted SQL from mixed response')
+            return sql_candidate, None
+
     # LLM answered directly (greeting, policy question, etc.)
     return None, raw
 
