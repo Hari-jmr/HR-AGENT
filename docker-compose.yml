@@ -1,0 +1,19 @@
+services:
+  backend:
+    build: .
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_BACKEND_URL: http://backend:5000
+    ports:
+      - "3001:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped

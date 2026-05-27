@@ -8,6 +8,7 @@ Schema: Odoo 8.0 HRMS
 
 import re
 import logging
+from functools import lru_cache
 
 import psycopg2
 import psycopg2.extras
@@ -123,6 +124,90 @@ def get_connection():
         password=Config.DB_PASSWORD,
         connect_timeout=10,
     )
+
+
+# ---------------------------------------------------------------------------
+# Dynamic schema introspection
+# ---------------------------------------------------------------------------
+
+_HR_TABLES = [
+    'hr_employee', 'hr_department', 'hr_designation', 'hr_job',
+    'hr_holidays_status', 'hr_holidays',
+    'hr_daily_attendance', 'hr_monthly_attendance', 'hr_attendance',
+    'hr_payroll_monthly_line', 'hr_salary_payment_line',
+    'hr_employee_salary_income', 'hr_employee_bonus',
+    'hr_timesheet_sheet_sheet',
+    'hr_expense_expense', 'hr_expense_line',
+    'helpdesk_support_ticket',
+    'project_project',
+    'holiday_calendar', 'holiday_calendar_year',
+    'holiday_calendar_line', 'optional_holiday_line',
+    'resource_resource',
+]
+
+
+@lru_cache(maxsize=1)
+def get_schema() -> str:
+    """
+    Fetch the live column list from information_schema and return a schema
+    string for LLM prompts.  Cached after first successful call so subsequent
+    requests pay no DB cost.  Falls back to the static HR_SCHEMA constant if
+    the DB is unreachable.
+    """
+    placeholders = ', '.join(f"'{t}'" for t in _HR_TABLES)
+    sql = f"""
+        SELECT table_name, column_name, data_type, character_maximum_length
+        FROM information_schema.columns
+        WHERE table_name IN ({placeholders})
+          AND table_schema = 'public'
+        ORDER BY table_name, ordinal_position
+    """
+    try:
+        conn = get_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute(sql)
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning('get_schema(): DB unavailable, using static fallback. %s', exc)
+        return HR_SCHEMA
+
+    if not rows:
+        return HR_SCHEMA
+
+    # Group columns by table name
+    tables: dict[str, list[str]] = {}
+    for table_name, column_name, data_type, max_len in rows:
+        col_type = (
+            f'varchar({max_len})'
+            if data_type in ('character varying', 'character') and max_len
+            else data_type
+        )
+        tables.setdefault(table_name, []).append(f'{column_name} ({col_type})')
+
+    lines = [f'PostgreSQL database: {Config.DB_NAME} (Odoo 8 HRMS)  host={Config.DB_HOST}\n']
+    for tbl in _HR_TABLES:
+        if tbl in tables:
+            lines.append(f'{tbl}({", ".join(tables[tbl])})')
+
+    # Critical business annotations that cannot be inferred from column metadata
+    lines.append("""
+-- ANNOTATIONS --
+-- hr_employee: name_related = display name; identification_id = emp_code
+-- hr_employee: current_ctc is ALWAYS 0 — never use for salary; use hr_payroll_monthly_line.ctc_yearly
+-- hr_employee: emp_state values: probation / confirmed / notice / resigned / relieved
+-- hr_holidays: type='add'=allocation, type='remove'=leave taken; state='validate'=approved
+-- hr_daily_attendance: final_result: P=Present, A=Absent, WO=Weekly Off, H=Holiday, L=Leave
+-- hr_monthly_attendance: month and year stored as TEXT (e.g. '3', '2026')
+-- hr_payroll_monthly_line / hr_salary_payment_line: filter column is emp_id (NOT employee_id)
+-- hr_payroll_monthly_line: no month/year column — use create_date for date filtering
+-- hr_employee_salary_income: component_name (text) and amount per month/year; filter: employee_id
+-- holiday_calendar_line: restricted_holiday=FALSE = mandatory public holiday; TRUE = optional
+-- res_users.id -> resource_resource.user_id -> hr_employee.resource_id
+""")
+    return '\n'.join(lines)
 
 
 # ---------------------------------------------------------------------------

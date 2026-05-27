@@ -1,8 +1,9 @@
 """
 Text-to-SQL service — uses OpenRouter LLM (Claude Sonnet 4) directly.
 
-No LangChain SQL chains. No live DB connection at startup.
-Schema is embedded in the prompt so the server starts instantly.
+The database schema is fetched live from information_schema on first use and
+cached for the lifetime of the process, so the prompt always reflects the
+actual column list.  Falls back to a static snapshot if the DB is unreachable.
 """
 
 import re
@@ -13,7 +14,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
 
 from backend.core.config import Config
-from backend.services.db_helper import HR_SCHEMA
+from backend.services.db_helper import get_schema
 
 logger = logging.getLogger(__name__)
 
@@ -82,20 +83,26 @@ Given the employee's question, output either:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 UNDERSTAND INTENT — not just keywords
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Input may be informal, short, have typos, or lack proper grammar. Infer intent.
 Employees phrase the same question many different ways. Understand what they MEAN:
-  • Any question about remaining leave days / leave quota / days off available → LEAVE BALANCE
-  • Any mention of a leave type name (casual, sick, optional, comp off, birthday, maternity,
-    paternity, bereavement, emergency, education, earned, privilege) — even phrased as
-    "what is/are X leaves" — query the DB for that employee's balance for that type.
-  • Any question about salary / pay / earnings / ctc / package → PAYROLL
-  • Any question about office presence / punch / worked hours at office → ATTENDANCE
-  • Any question about leave taken / applied / approved / rejected → LEAVE HISTORY
-  • Any question about project hours / timesheet → TIMESHEET
-  • Any question about expenses submitted / claims / reimbursement → EXPENSES
-  • Any question about HR support tickets / IT issues → HELPDESK
-  • Any question about personal info / profile / joining date → EMPLOYEE PROFILE
-  • Any question about whether a specific day is a holiday, can I take leave on a festival,
-    list of public/company holidays, is X a holiday → PUBLIC HOLIDAYS (section 11)
+  • Remaining leave / days off / offs left / leave quota / how many leaves → LEAVE BALANCE
+  • Leave type name (casual/sick/optional/comp off/birthday/maternity/paternity/
+    bereavement/emergency/education/earned/privilege) even as "what is X leave" → LEAVE BALANCE
+  • Salary / pay / earnings / ctc / package / how much I get / salary slip / payslip → PAYROLL
+  • When was salary credited / salary payment date / salary transfer date / last salary paid
+    / when did I receive salary → SALARY PAYMENT (section 5a)
+  • Salary components / component wise / basic salary / HRA amount / breakdown / what is my
+    basic / monthly component details → SALARY COMPONENTS (section 5b)
+  • Office presence / punch / login logout / worked hours / attendance / was I present
+    / did I come to office / how many days worked → ATTENDANCE
+  • Leave taken / applied / leave requests / approved or rejected leaves / leave history → LEAVE HISTORY
+  • Project hours / timesheet / hours logged on project → TIMESHEET
+  • Expenses / claims / reimbursement / travel expense / submitted bills → EXPENSES
+  • Support tickets / helpdesk / IT issue / complaint / ticket status → HELPDESK
+  • Personal info / profile / joining date / DOJ / my details / who is my manager → EMPLOYEE PROFILE
+  • List projects / which projects / all projects / project names / active projects → PROJECTS (section 10a)
+  • Is [day/festival] a holiday / can I take leave on [festival] / upcoming holidays / holiday list
+    → PUBLIC HOLIDAYS (section 11)
   When in doubt between LEAVE BALANCE and LEAVE HISTORY, default to LEAVE BALANCE.
   When a specific date, "took", "applied", "request" is mentioned → LEAVE HISTORY.
 
@@ -209,6 +216,29 @@ CONCEPT → TABLE MAPPING
    For CTC question: SELECT ctc_yearly FROM hr_payroll_monthly_line WHERE emp_id = {employee_id} ORDER BY id DESC LIMIT 1
    For salary breakdown: SELECT ctc_basic, ctc_hra, ctc_special_allowance, gross_sal_after_tax, total_ded, tds, prof_tax FROM hr_payroll_monthly_line WHERE emp_id = {employee_id} ORDER BY id DESC LIMIT 1
 
+5a. SALARY PAYMENT RECORDS — when salary was paid / credited to bank
+    Use for: when was salary credited, salary payment date, last salary transfer,
+             salary received date, when did I get salary, payment history
+    Table: hr_salary_payment_line (filter: WHERE emp_id = {employee_id})
+    ⚠ Filter is emp_id (NOT employee_id)
+    Key cols: salary, payment_date, salary_payment_id
+    Latest payment: SELECT payment_date, salary FROM hr_salary_payment_line
+                    WHERE emp_id = {employee_id} ORDER BY payment_date DESC LIMIT 1
+    Payment history: same query with LIMIT 5
+
+5b. SALARY COMPONENTS (COMPONENT-WISE BREAKDOWN)
+    Use for: component wise salary, what is my basic, HRA amount, salary structure,
+             monthly salary components, salary details by component, PF breakup
+    Table: hr_employee_salary_income WHERE employee_id = {employee_id}
+    Key cols: year (integer), month (integer), component_name (text), amount (numeric)
+    This month: SELECT component_name, amount FROM hr_employee_salary_income
+                WHERE employee_id = {employee_id}
+                  AND year  = EXTRACT(YEAR  FROM CURRENT_DATE)::int
+                  AND month = EXTRACT(MONTH FROM CURRENT_DATE)::int
+                ORDER BY component_name
+    Specific month/year: replace EXTRACT(...) with the literal values
+    Latest month available: ORDER BY year DESC, month DESC LIMIT 20
+
 6. BONUS — incentive, performance bonus, reward
    Use for: my bonus, any bonus, incentive, performance pay, bonus amount, bonus history
    Table: hr_employee_bonus WHERE employee_id = {employee_id}
@@ -242,6 +272,12 @@ CONCEPT → TABLE MAPPING
     Tables: hr_department, hr_employee
     For team: WHERE department_id = (SELECT department_id FROM hr_employee WHERE id = {employee_id})
 
+10a. PROJECTS — list of active company projects
+    Use for: list projects, all projects, which projects, project names, active projects
+    Table: project_project
+    Query: SELECT name FROM project_project WHERE active = TRUE ORDER BY name LIMIT 20
+    No employee filter needed (company-wide data).
+
 11. PUBLIC HOLIDAYS / COMPANY CALENDAR
     Use for: is [day/festival] a holiday, can I take leave on [festival name], list holidays,
              what are the upcoming holidays, is [date] a holiday, Shiva Ratri / Holi / Diwali
@@ -257,18 +293,30 @@ CONCEPT → TABLE MAPPING
         key cols: name, date, holiday_year_id -> holiday_calendar_year
     ⚠ ALWAYS filter holidays by the employee's holiday_calendar: '{holiday_location}'
       Do NOT show Karnataka holidays to a Kerala-based employee, or vice versa.
-    Search by name: WHERE hcl.name ILIKE '%shivratri%' OR hcl.name ILIKE '%shiva%'
-    For current year: WHERE hcl.year = EXTRACT(YEAR FROM CURRENT_DATE)::text
-    Typical query pattern (always join to filter by employee's calendar location):
-      SELECT hcl.name, hcl.date,
-             CASE WHEN hcl.restricted_holiday THEN 'Optional' ELSE 'Public Holiday' END AS type
+    ⚠ When searching by FESTIVAL NAME: OMIT the year filter and search BOTH tables with UNION ALL
+      so you do not miss holidays with slightly different spellings or entered in a different year.
+    ⚠ Use broad ILIKE patterns for festival names — the DB spelling may differ:
+        Shivaratri → ILIKE '%shiv%'
+        Holi       → ILIKE '%holi%'
+        Diwali     → ILIKE '%diwal%'
+        Good Friday → ILIKE '%good%friday%' OR ILIKE '%good%'
+        Dussehra   → ILIKE '%duss%' OR ILIKE '%vijaya%'
+    Festival name search pattern (UNION both tables, no year filter):
+      SELECT name, date,
+             CASE WHEN restricted_holiday THEN 'Optional' ELSE 'Public Holiday' END AS type
       FROM holiday_calendar_line hcl
       JOIN holiday_calendar_year hcy ON hcl.calendar_year_id = hcy.id
       JOIN holiday_calendar hc ON hcy.calendar_id = hc.id
       WHERE hc.name = '{holiday_location}'
         AND hcl.name ILIKE '%keyword%'
-        AND hcl.year = EXTRACT(YEAR FROM CURRENT_DATE)::text
-      ORDER BY hcl.date
+      UNION ALL
+      SELECT ohl.name, ohl.date, 'Optional' AS type
+      FROM optional_holiday_line ohl
+      JOIN holiday_calendar_year hcy ON ohl.holiday_year_id = hcy.id
+      JOIN holiday_calendar hc ON hcy.calendar_id = hc.id
+      WHERE hc.name = '{holiday_location}'
+        AND ohl.name ILIKE '%keyword%'
+      ORDER BY date
       LIMIT 10
     For listing all upcoming holidays this year, omit the name filter:
       SELECT hcl.name, hcl.date,
@@ -320,7 +368,9 @@ Rules:
 - Show zero values too (e.g. "0 days" is still a valid answer — do NOT say "no data found" for zeros).
 - No preamble ("Based on...", "Here is..."), no closing remarks.
 - No markdown bold/italic. Plain text only.
-- If the data list is truly empty (no rows at all): respond exactly "No [topic] data found. Please contact HR."
+- If the data list is truly empty (no rows at all):
+    • For holiday/festival queries: say "[Festival] was not found in your company holiday calendar. It may not be a declared holiday for your location, or it may be listed under a different name. Please check with HR."
+    • For all other queries: respond exactly "No [topic] data found. Please contact HR."
 - Never mention SQL, table names, column names, or technical details.
 """
 
@@ -382,7 +432,7 @@ def generate_sql_or_answer(
         emp_code=employee_info.get('emp_code', ''),
         work_location=work_location or 'Unknown',
         holiday_location=holiday_location,
-        schema=HR_SCHEMA,
+        schema=get_schema(),
     )
 
     messages: list = [SystemMessage(content=system)]
@@ -426,9 +476,8 @@ def format_result(
     Ask the LLM to turn query results into natural language.
     Returns a human-readable answer string.
     """
-    if not rows:
-        return 'No data was found for your query. Please contact HR if you need further help.'
-
+    # Always send to LLM — even empty rows — so _FORMAT_SYSTEM can give a
+    # context-aware message (e.g. holiday-specific hint vs generic not-found).
     human = f'Question: {user_message}\nData: {rows[:25]}'
     messages = [
         SystemMessage(content=_FORMAT_SYSTEM),
