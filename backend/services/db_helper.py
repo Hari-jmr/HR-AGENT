@@ -58,9 +58,9 @@ hr_payroll_monthly_line(id, emp_id->hr_employee, emp_code,
   total_ded, tds, prof_tax, ewf_ded, employer_pf,
   d_join, bank_name, bank_acc_number, ifsc_code)
 hr_salary_payment_line(id, emp_id->hr_employee, emp_code,
-  salary, payment_date, salary_payment_id)
-hr_employee_salary_income(id, employee_id, year, month,
-  component_name, amount)
+  salary, create_date AS payment_date, salary_payment_id)
+hr_employee_salary_income(id, employee_id, name, monthly_amount,
+  employee_incometax_id, payslip_id, rule_id)
 hr_employee_bonus(id, employee_id, bonus_type, bonus_amount,
   date, state, month, note)
 
@@ -80,7 +80,8 @@ helpdesk_support_ticket(id, employee_id, emp_code, ticket_no,
   ref, description, state, priority, date_closed, project_id)
 
 === PROJECTS ===
-project_project(id, name, active, state, analytic_account_id)
+project_project(id, active, state, analytic_account_id->account_analytic_account)
+account_analytic_account(id, name, state)
 
 === HOLIDAYS ===
 holiday_calendar(id, name)
@@ -113,7 +114,7 @@ _HR_TABLES = [
     'hr_timesheet_sheet_sheet',
     'hr_expense_expense', 'hr_expense_line',
     'helpdesk_support_ticket',
-    'project_project',
+    'project_project', 'account_analytic_account',
     'holiday_calendar', 'holiday_calendar_year',
     'holiday_calendar_line', 'optional_holiday_line',
     'resource_resource',
@@ -162,10 +163,13 @@ def get_schema() -> str:
     lines.append("""
 -- ANNOTATIONS --
 -- hr_employee: name_related = display name; identification_id = emp_code
--- hr_employee: current_ctc is ALWAYS 0 — never use for salary; use hr_payroll_monthly_line.ctc_yearly
+-- hr_employee: current_ctc is ALWAYS 0 -- never use for salary; use hr_payroll_monthly_line.ctc_yearly
 -- hr_holidays: type='add'=allocation, type='remove'=leave taken; state='validate'=approved
 -- hr_daily_attendance: final_result: P=Present, A=Absent, WO=Weekly Off, H=Holiday, L=Leave
 -- hr_payroll_monthly_line / hr_salary_payment_line: filter column is emp_id (NOT employee_id)
+-- hr_salary_payment_line: payment date column is create_date (NOT payment_date)
+-- hr_employee_salary_income: columns are name, monthly_amount (NOT year, month, component_name, amount)
+-- holiday_calendar_line: public holidays; optional_holiday_line: optional holidays (where festivals like Holi are)
 -- holiday_calendar_line: restricted_holiday=FALSE = mandatory public holiday; TRUE = optional
 """)
     return '\n'.join(lines)
@@ -281,7 +285,7 @@ _DANGEROUS_KW = re.compile(
 )
 
 _UNION_INJECTION = re.compile(
-    r'\bUNION\b.*\bSELECT\b',
+    r'\bUNION\b(?!\s+ALL\b).*?\bSELECT\b',
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -292,14 +296,18 @@ def validate_sql(sql: str) -> tuple[bool, str]:
     """
     Strict SQL validation for read-only queries.
     
-    Returns (True, 'OK') for safe SELECT queries.
+    Returns (True, 'OK') for safe SELECT or WITH...SELECT queries.
     Returns (False, reason) for unsafe queries.
     """
     cleaned = sql.strip().rstrip(';')
-    
-    if not cleaned.upper().startswith('SELECT'):
-        return False, 'Only SELECT queries are allowed.'
-    
+    upper = cleaned.upper()
+
+    if not (upper.startswith('SELECT') or upper.startswith('WITH')):
+        return False, 'Only SELECT / WITH queries are allowed.'
+
+    if upper.startswith('WITH') and not re.search(r'\)\s*SELECT\b', upper):
+        return False, 'WITH queries must end in a SELECT.'
+
     if _DANGEROUS_KW.search(cleaned):
         return False, 'Query contains forbidden keywords (INSERT/UPDATE/DELETE/DROP etc).'
     
@@ -414,11 +422,15 @@ def enforce_employee_isolation(
 
 
 def execute_safe_query(
-    sql: str, params=None, limit: int = 25
+    sql: str, params=None, limit: int = 25, statement_timeout_ms: int = 5000
 ) -> tuple[dict | None, str | None]:
     """
     Run a validated SELECT query with strict limits.
-    
+
+    Enforces (a) read-only transaction at the DB level, (b) a statement
+    timeout so a runaway query cannot stall the chat pipeline, and (c)
+    an injected LIMIT when one is missing.
+
     Returns (result_dict, None) or (None, error_string).
     """
     valid, msg = validate_sql(sql)
@@ -431,12 +443,19 @@ def execute_safe_query(
 
     conn = get_connection()
     try:
+        conn.set_session(readonly=True, autocommit=False)
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(f'SET LOCAL statement_timeout = {int(statement_timeout_ms)}')
         cur.execute(cleaned, params)
         rows = cur.fetchall()
         columns = [d[0] for d in cur.description] if cur.description else []
+        conn.commit()
         return {'columns': columns, 'rows': [dict(r) for r in rows], 'count': len(rows)}, None
     except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         logger.error('[QUERY_ERROR] %s  sql=%r', exc, cleaned[:200])
         return None, str(exc)
     finally:

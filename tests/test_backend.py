@@ -113,6 +113,28 @@ class TestSQLValidation:
         assert valid == False
         assert "union" in msg.lower()
 
+    def test_allow_union_all_subquery(self):
+        valid, msg = validate_sql(
+            "SELECT name FROM ("
+            "  SELECT name FROM holiday_calendar_line WHERE name = 'Diwali'"
+            "  UNION ALL"
+            "  SELECT name FROM optional_holiday_line WHERE name = 'Diwali'"
+            ") holidays ORDER BY name LIMIT 10"
+        )
+        assert valid == True
+        assert msg == "OK"
+
+    def test_allow_union_all_subquery(self):
+        valid, msg = validate_sql(
+            "SELECT name FROM ("
+            "  SELECT name FROM holiday_calendar_line WHERE name = 'Diwali'"
+            "  UNION ALL"
+            "  SELECT name FROM optional_holiday_line WHERE name = 'Diwali'"
+            ") holidays ORDER BY name LIMIT 10"
+        )
+        assert valid == True
+        assert msg == "OK"
+
     def test_block_comments(self):
         valid, msg = validate_sql("SELECT * FROM hr_employee WHERE id = 1 -- comment")
         assert valid == False
