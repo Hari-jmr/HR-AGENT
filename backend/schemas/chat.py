@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -30,3 +30,19 @@ class ChatResponse(BaseModel):
     structured: ChatStructuredResponse
     sql: str | None = None
     data_source: str | None = None
+    
+    def model_dump(self, **kwargs):
+        data = super().model_dump(**kwargs)
+        data.pop('sql', None)
+        return data
+
+
+class ChatMemoryResponse(BaseModel):
+    """Session memory state."""
+    employee_id: int
+    employee_name: str
+    message_count: int
+    last_topic: str | None = None
+    last_query_type: str | None = None
+    context_summary: str
+    session_duration_seconds: float

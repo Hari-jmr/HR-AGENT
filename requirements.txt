@@ -12,3 +12,5 @@ langchain>=0.3.30
 langchain-community>=0.3.27
 langchain-openai>=0.3.35
 sqlalchemy>=2.0.50
+pytest>=8.0.0
+pytest-asyncio>=0.23.0

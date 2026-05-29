@@ -1,3 +1,6 @@
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,6 +10,9 @@ from starlette.middleware.sessions import SessionMiddleware
 from backend.api.router import api_router
 from backend.core.settings import settings
 from backend.schemas.common import ErrorDetail, ErrorResponse, StatusResponse
+from backend.middleware.rate_limit import RateLimitMiddleware
+
+logger = logging.getLogger(__name__)
 
 
 def _format_validation_loc(location: tuple[object, ...]) -> str | None:
@@ -24,12 +30,20 @@ def _build_validation_details(errors: list[dict]) -> list[ErrorDetail]:
     ]
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info('HR Agent API starting up')
+    yield
+    logger.info('HR Agent API shutting down')
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.APP_NAME,
         version=settings.APP_VERSION,
         docs_url='/docs',
         redoc_url='/redoc',
+        lifespan=lifespan,
     )
 
     app.add_middleware(
@@ -38,11 +52,14 @@ def create_app() -> FastAPI:
         same_site='lax',
         https_only=False,
     )
+    
+    app.add_middleware(RateLimitMiddleware, requests_per_minute=60)
+    
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.ALLOWED_ORIGINS,
         allow_credentials=True,
-        allow_methods=['*'],
+        allow_methods=['GET', 'POST'],
         allow_headers=['*'],
     )
 

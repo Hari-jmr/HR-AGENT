@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from backend.api.deps import get_session_employee
-from backend.schemas.chat import ChatRequest, ChatResponse
+from backend.schemas.chat import ChatRequest, ChatResponse, ChatMemoryResponse
 from backend.schemas.common import ErrorResponse, StatusResponse
-from backend.services.chat_service import clear_chat_history, handle_chat_message
+from backend.services.chat_service import clear_chat_history, handle_chat_message, get_session_memory
 
 
 router = APIRouter()
@@ -20,6 +20,12 @@ def chat(payload: ChatRequest, request: Request, employee: dict = Depends(get_se
     if not payload.message.strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Empty message')
     return handle_chat_message(request.session, payload.message.strip(), employee)
+
+
+@router.get('/memory', response_model=ChatMemoryResponse)
+def get_memory(request: Request, employee: dict = Depends(get_session_employee)):
+    """Get current session memory and context."""
+    return get_session_memory(request.session)
 
 
 @router.post('/clear', response_model=StatusResponse)

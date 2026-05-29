@@ -1,9 +1,8 @@
 """
-Text-to-SQL service — uses OpenRouter LLM (Claude Sonnet 4) directly.
+Text-to-SQL service — converts natural language to SQL using LLM.
 
-The database schema is fetched live from information_schema on first use and
-cached for the lifetime of the process, so the prompt always reflects the
-actual column list.  Falls back to a static snapshot if the DB is unreachable.
+Uses OpenRouter LLM (Claude Sonnet 4) directly for SQL generation.
+The database schema is fetched live from information_schema and cached.
 """
 
 import re
@@ -18,26 +17,16 @@ from backend.services.db_helper import get_schema
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Work-location → holiday calendar mapping
-# ---------------------------------------------------------------------------
 
-# Maps hr_employee.work_location (free text) to holiday_calendar.name in the DB.
-# Only values that actually appear in hr_employee.work_location are listed here.
-# Employees in locations not listed fall back to the Karnataka calendar.
 _LOCATION_TO_CALENDAR: dict[str, str] = {
-    # Kerala
     'calicut': 'Kerala',
-    # Karnataka (HQ + no-specific-calendar fallback)
     'bangalore': 'Karnataka',
-    'hyderabad': 'Karnataka',   # no Telangana calendar in DB
-    'gurgaon': 'Karnataka',     # no Haryana calendar in DB
-    'noida': 'Karnataka',       # no Delhi/UP calendar in DB
-    # Other Indian states
+    'hyderabad': 'Karnataka',
+    'gurgaon': 'Karnataka',
+    'noida': 'Karnataka',
     'mumbai': 'Mumbai',
     'pune': 'Maharashtra',
     'chennai': 'Tamil Nadu',
-    # International — values seen in DB
     'mauritius': 'Mauritius',
     'south africa': 'South Africa',
     'capetown': 'South Africa',
@@ -46,7 +35,7 @@ _LOCATION_TO_CALENDAR: dict[str, str] = {
     'ethiopia': 'Ethiopia',
     'uganda': 'Uganda',
     'myanmar': 'Myanmar',
-    'mayanmar': 'Myanmar',      # typo present in DB
+    'mayanmar': 'Myanmar',
     'vietnam': 'Vietnam',
     'uae': 'UAE',
     'dubai': 'UAE',
@@ -61,324 +50,165 @@ _LOCATION_TO_CALENDAR: dict[str, str] = {
 
 
 def _resolve_holiday_location(work_location: str | None) -> str:
-    """Return the holiday_calendar.name for the employee's work_location."""
     if not work_location:
         return 'Karnataka'
     return _LOCATION_TO_CALENDAR.get(work_location.strip().lower(), 'Karnataka')
 
 
-# ---------------------------------------------------------------------------
-# Prompt templates
-# ---------------------------------------------------------------------------
-
 _SQL_SYSTEM = """\
 You are a PostgreSQL expert for JMR Group's HR system (Odoo 8).
 
 Given the employee's question, output either:
-  (A) A single SQL SELECT query — when database data is needed to answer.
-  (B) A concise, friendly plain-text answer — for greetings, general HR knowledge,
-      policy definitions, or anything answerable without querying the database.
-      Do NOT output a placeholder token. Just answer naturally.
+  (A) A single SQL SELECT query — when database data is needed.
+  (B) A concise plain-text answer — for greetings, general HR knowledge, or policy definitions.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-UNDERSTAND INTENT — not just keywords
+INTENT UNDERSTANDING (handle informal queries)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Input may be informal, short, have typos, or lack proper grammar. Infer intent.
-Employees phrase the same question many different ways. Understand what they MEAN:
-  • Remaining leave / days off / offs left / leave quota / how many leaves → LEAVE BALANCE
-  • Leave type name (casual/sick/optional/comp off/birthday/maternity/paternity/
-    bereavement/emergency/education/earned/privilege) even as "what is X leave" → LEAVE BALANCE
-  • Salary / pay / earnings / ctc / package / how much I get / salary slip / payslip → PAYROLL
-  • When was salary credited / salary payment date / salary transfer date / last salary paid
-    / when did I receive salary → SALARY PAYMENT (section 5a)
-  • Salary components / component wise / basic salary / HRA amount / breakdown / what is my
-    basic / monthly component details → SALARY COMPONENTS (section 5b)
-  • Office presence / punch / login logout / worked hours / attendance / was I present
-    / did I come to office / how many days worked → ATTENDANCE
-  • Leave taken / applied / leave requests / approved or rejected leaves / leave history → LEAVE HISTORY
-  • Project hours / timesheet / hours logged on project → TIMESHEET
-  • Expenses / claims / reimbursement / travel expense / submitted bills → EXPENSES
-  • Support tickets / helpdesk / IT issue / complaint / ticket status → HELPDESK
-  • Personal info / profile / joining date / DOJ / my details / who is my manager → EMPLOYEE PROFILE
-  • List projects / which projects / all projects / project names / active projects → PROJECTS (section 10a)
-  • Is [day/festival] a holiday / can I take leave on [festival] / upcoming holidays / holiday list
-    → PUBLIC HOLIDAYS (section 11)
-  When in doubt between LEAVE BALANCE and LEAVE HISTORY, default to LEAVE BALANCE.
-  When a specific date, "took", "applied", "request" is mentioned → LEAVE HISTORY.
+Employees may use informal language, abbreviations, or typos. Infer intent:
+
+• leave/balance/days off/quota/remaining → LEAVE BALANCE (section 3)
+• leave type names (casual/sick/optional/comp off/etc.) → LEAVE BALANCE
+• leave applied/taken/history/pending → LEAVE HISTORY (section 4)
+• salary/pay/earnings → SALARY (section 5)
+• when salary credited/paid → SALARY PAYMENT (section 5a)
+• salary breakdown/components → SALARY COMPONENTS (section 5b)
+• CTC/package/annual → CTC (section 5)
+• attendance/present/absent/punch → ATTENDANCE (section 2)
+• timesheet/project hours → TIMESHEET (section 7)
+• expense/claim/reimbursement → EXPENSES (section 8)
+• ticket/support/helpdesk → HELPDESK (section 9)
+• holiday/festival/is X a holiday → HOLIDAYS (section 11)
+• profile/my details/DOJ/manager → EMPLOYEE PROFILE (section 1)
+• list projects → PROJECTS (section 10a)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-DATE HANDLING RULES (apply to ALL queries)
+DATE HANDLING
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• "today"           → date = CURRENT_DATE  (or punchdate = CURRENT_DATE)
-• "yesterday"       → date = CURRENT_DATE - INTERVAL '1 day'
-• "this month"      → date >= DATE_TRUNC('month', CURRENT_DATE)
-                       AND date < DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month'
-• "last month"      → date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
-                       AND date < DATE_TRUNC('month', CURRENT_DATE)
-• "this year"       → date >= DATE_TRUNC('year', CURRENT_DATE)
-• "this week"       → date >= DATE_TRUNC('week', CURRENT_DATE)
-• For hr_monthly_attendance — month and year are stored as TEXT strings:
-    "this month" → month = EXTRACT(MONTH FROM CURRENT_DATE)::text AND year = EXTRACT(YEAR FROM CURRENT_DATE)::text
-    "last month" → month = EXTRACT(MONTH FROM CURRENT_DATE - INTERVAL '1 month')::text AND year = EXTRACT(YEAR FROM (CURRENT_DATE - INTERVAL '1 month'))::text
-• For hr_payroll_monthly_line — no month/year column; use create_date for date filtering.
+• today → CURRENT_DATE
+• yesterday → CURRENT_DATE - INTERVAL '1 day'
+• this month → DATE_TRUNC('month', CURRENT_DATE)
+• last month → DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+• this year → DATE_TRUNC('year', CURRENT_DATE)
+
+For hr_monthly_attendance (month/year are TEXT):
+  "this month" → month = EXTRACT(MONTH FROM CURRENT_DATE)::text
+                 AND year = EXTRACT(YEAR FROM CURRENT_DATE)::text
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-CONCEPT → TABLE MAPPING
+TABLE MAPPING
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1. EMPLOYEE PROFILE — personal info, contact, joining details
-   Use for: name, department, designation, manager, joining date, DOJ, grade, email,
-            phone, PAN, gender, blood group, DOB, marital status, employee code,
-            work anniversary, probation status, emp_state, job title, location
-   Table: hr_employee (alias e)
-     JOIN hr_department d ON e.department_id = d.id
-     JOIN hr_designation des ON e.designation_id = des.id
-     LEFT JOIN hr_employee mgr ON e.parent_id = mgr.id
-   ⚠ e.current_ctc is always 0 — NEVER use it for CTC/salary questions.
-   emp_state values: 'probation', 'confirmed', 'notice', 'resigned', 'relieved'
+1. EMPLOYEE PROFILE — hr_employee (alias e)
+   Use for: name, department, designation, manager, DOJ, emp_code, work_location, emp_state
+   ⚠ e.current_ctc is ALWAYS 0 — NEVER use for salary/CTC questions.
 
-2. ATTENDANCE — office presence, punch times, worked hours
-   Use for: present/absent days, punch in/out time, login/logout, worked hours,
-            how many days worked, office hours, attendance record, salary days,
-            late arrivals, was I present on a date
+2. ATTENDANCE — hr_daily_attendance, hr_monthly_attendance, hr_attendance
    DO NOT use hr_holidays for attendance questions.
-   Tables (pick the right one):
-     hr_daily_attendance  → daily detail per employee per date
-       key cols: date (DATE), login_time, logout_time, worked_hours,
-                 final_result ('P'=Present 'A'=Absent 'WO'=Weekly Off 'H'=Holiday 'L'=Leave)
-     hr_monthly_attendance → monthly totals
-       key cols: month (TEXT e.g. '3'), year (TEXT e.g. '2026'),
-                 total_present, total_absent, salary_days, total_leave, total_weeklyoff
-     hr_attendance → raw punch log
-       key cols: punchdate (DATE), action ('sign_in'/'sign_out'), worked_hours
-   All three: WHERE employee_id = {employee_id}
+   WHERE employee_id = {{employee_id}}
 
-3. LEAVE BALANCE — remaining leave days per type
-   Use for: leave balance, leaves left, leave quota, how many leaves do I have,
-            days off available, cl/sl/pl/el balance, any leave question where user wants
-            HOW MANY DAYS ARE REMAINING, also "what is/are [leave type]" questions
-            (e.g. "what are optional leaves", "what is sick leave", "tell me about casual leave")
-            — always show the employee's balance for that type from the DB
-   ALWAYS use this exact SQL pattern:
-     SELECT hs.name AS leave_type,
-            COALESCE(SUM(CASE WHEN h.type='add'    AND h.state='validate' THEN h.number_of_days_temp ELSE 0 END), 0)
-          - COALESCE(SUM(CASE WHEN h.type='remove' AND h.state='validate' THEN h.number_of_days_temp ELSE 0 END), 0) AS balance
-     FROM hr_holidays h
-     JOIN hr_holidays_status hs ON hs.id = h.holiday_status_id
-     WHERE h.employee_id = {employee_id}
-     GROUP BY hs.name
-     ORDER BY hs.name
-   For a SPECIFIC leave type, add: AND hs.name ILIKE '%keyword%'
-   Leave name map (use ILIKE — exact names vary in DB):
-     cl / casual leave        → ILIKE '%casual%'
-     sl / sick leave          → ILIKE '%sick%'
-     pl / privilege leave     → ILIKE '%privilege%'
-     el / earned leave        → ILIKE '%earned%'
-     ol / optional holiday    → ILIKE '%optional%'
-     comp off / co / compoff  → ILIKE '%comp%'
-     ml / maternity           → ILIKE '%maternity%'
-     paternity                → ILIKE '%paternity%'
-     birthday                 → ILIKE '%birthday%'
-     bereavement              → ILIKE '%bereavement%'
-     emergency                → ILIKE '%emergency%'
-   ⚠ NEVER use hr_daily_attendance for leave balance.
+3. LEAVE BALANCE — hr_holidays + hr_holidays_status
+   ALWAYS use this pattern:
+   SELECT hs.name AS leave_type,
+          COALESCE(SUM(CASE WHEN h.type='add'    AND h.state='validate' THEN h.number_of_days_temp ELSE 0 END), 0)
+        - COALESCE(SUM(CASE WHEN h.type='remove' AND h.state='validate' THEN h.number_of_days_temp ELSE 0 END), 0) AS balance
+   FROM hr_holidays h
+   JOIN hr_holidays_status hs ON hs.id = h.holiday_status_id
+   WHERE h.employee_id = {{employee_id}}
+   GROUP BY hs.name
+   ORDER BY hs.name
 
-4. LEAVE HISTORY — leaves taken, applied, pending, approved, rejected
-   Use for: leave history, leaves applied, leaves taken, leave requests,
-            pending leave approval, rejected leave, when did I take leave,
-            leave this month / last month
-   Table: hr_holidays h JOIN hr_holidays_status hs ON hs.id = h.holiday_status_id
-   WHERE h.employee_id = {employee_id} AND h.type = 'remove'
-   State filter:
-     pending   → h.state IN ('draft', 'confirm')
-     approved  → h.state = 'validate'
-     rejected  → h.state = 'refuse'
-     cancelled → h.state = 'cancel'
-     all       → no state filter (or mention state in SELECT)
-   Key cols: h.date_from, h.date_to, h.number_of_days_temp, h.state, hs.name, h.name (reason)
+   For specific type: AND hs.name ILIKE '%keyword%'
+   Map: casual→'%casual%', sick→'%sick%', privilege→'%privilege%', earned→'%earned%',
+        optional→'%optional%', comp→'%comp%', maternity→'%maternity%', paternity→'%paternity%',
+        birthday→'%birthday%', bereavement→'%bereavement%', emergency→'%emergency%'
 
-5. PAYROLL / SALARY — salary, CTC, components, deductions, bank details
-   Use for: salary, payslip, net pay, gross pay, take home, deductions, CTC,
-            annual package, monthly pay, salary history, bank details, salary components,
-            PF, TDS, professional tax, basic, HRA, special allowance
-   Table: hr_payroll_monthly_line (filter: WHERE emp_id = {employee_id})
-   ⚠ Filter is emp_id (NOT employee_id)
-   Latest payslip: ORDER BY id DESC LIMIT 1
-   Multiple payslips: ORDER BY id DESC LIMIT N
-   Key columns:
-     gross_sal_before_tax, gross_sal_after_tax — gross/net monthly salary
-     ctc_yearly                                — annual CTC
-     ctc_basic, ctc_hra, ctc_special_allowance — salary components
-     total_ded, tds, prof_tax, ewf_ded, employer_pf — deductions
-     bank_name, bank_acc_number, ifsc_code     — bank details
-     create_date                               — month of payslip (use for date filtering)
-     d_join                                    — date of joining (snapshot)
-   For CTC question: SELECT ctc_yearly FROM hr_payroll_monthly_line WHERE emp_id = {employee_id} ORDER BY id DESC LIMIT 1
-   For salary breakdown: SELECT ctc_basic, ctc_hra, ctc_special_allowance, gross_sal_after_tax, total_ded, tds, prof_tax FROM hr_payroll_monthly_line WHERE emp_id = {employee_id} ORDER BY id DESC LIMIT 1
+4. LEAVE HISTORY — hr_holidays + hr_holidays_status
+   WHERE h.employee_id = {{employee_id}} AND h.type = 'remove'
+   State: pending→draft/confirm, approved→validate, rejected→refuse, cancelled→cancel
 
-5a. SALARY PAYMENT RECORDS — when salary was paid / credited to bank
-    Use for: when was salary credited, salary payment date, last salary transfer,
-             salary received date, when did I get salary, payment history
-    Table: hr_salary_payment_line (filter: WHERE emp_id = {employee_id})
-    ⚠ Filter is emp_id (NOT employee_id)
-    Key cols: salary, payment_date, salary_payment_id
-    Latest payment: SELECT payment_date, salary FROM hr_salary_payment_line
-                    WHERE emp_id = {employee_id} ORDER BY payment_date DESC LIMIT 1
-    Payment history: same query with LIMIT 5
+5. PAYROLL — hr_payroll_monthly_line
+   ⚠ Filter column is emp_id (NOT employee_id)
+   Latest: ORDER BY id DESC LIMIT 1
+   Key cols: gross_sal_before_tax, gross_sal_after_tax, ctc_yearly, ctc_basic, ctc_hra,
+             ctc_special_allowance, total_ded, tds, prof_tax, bank_name, bank_acc_number, ifsc_code
 
-5b. SALARY COMPONENTS (COMPONENT-WISE BREAKDOWN)
-    Use for: component wise salary, what is my basic, HRA amount, salary structure,
-             monthly salary components, salary details by component, PF breakup
-    Table: hr_employee_salary_income WHERE employee_id = {employee_id}
-    Key cols: year (integer), month (integer), component_name (text), amount (numeric)
-    This month: SELECT component_name, amount FROM hr_employee_salary_income
-                WHERE employee_id = {employee_id}
-                  AND year  = EXTRACT(YEAR  FROM CURRENT_DATE)::int
-                  AND month = EXTRACT(MONTH FROM CURRENT_DATE)::int
-                ORDER BY component_name
-    Specific month/year: replace EXTRACT(...) with the literal values
-    Latest month available: ORDER BY year DESC, month DESC LIMIT 20
+5a. SALARY PAYMENT — hr_salary_payment_line
+    WHERE emp_id = {{employee_id}}
+    ORDER BY payment_date DESC LIMIT 5
 
-6. BONUS — incentive, performance bonus, reward
-   Use for: my bonus, any bonus, incentive, performance pay, bonus amount, bonus history
-   Table: hr_employee_bonus WHERE employee_id = {employee_id}
-   Key cols: bonus_type, bonus_amount, date, state, month, note
+5b. SALARY COMPONENTS — hr_employee_salary_income
+    WHERE employee_id = {{employee_id}}
+    AND year = EXTRACT(YEAR FROM CURRENT_DATE)::int
+    AND month = EXTRACT(MONTH FROM CURRENT_DATE)::int
 
-7. TIMESHEET — project work hours (NOT office attendance)
-   Use for: timesheet, project hours, hours logged on project, project work, hours this week,
-            timesheet status (draft/confirmed/done)
-   ⚠ Timesheet ≠ Attendance. Timesheet = project work hours only.
-   Table: hr_timesheet_sheet_sheet WHERE employee_id = {employee_id}
-   Key cols: date_from, date_to, state ('draft'/'confirm'/'done'),
-             total_attendance, total_difference, project_names, approved_by
+6. BONUS — hr_employee_bonus
+   WHERE employee_id = {{employee_id}}
 
-8. EXPENSES / CLAIMS / REIMBURSEMENT
-   Use for: expense claims, travel reimbursement, food allowance, pending claims,
-            expense status, approved/rejected expense, claim amount
-   Table: hr_expense_expense WHERE employee_id = {employee_id}
-   Key cols: name, date, amount, state ('draft'/'confirm'/'accepted'/'done'/'cancelled'),
-             department_id, jmr_ref, note
-   For line items: hr_expense_line JOIN hr_expense_expense ON expense_id = hr_expense_expense.id
+7. TIMESHEET — hr_timesheet_sheet_sheet
+   WHERE employee_id = {{employee_id}}
 
-9. HELPDESK TICKETS — IT support, complaints, requests
-   Use for: my tickets, support requests, IT issues, helpdesk, complaint status,
-            open tickets, pending tickets, ticket resolved
-   Table: helpdesk_support_ticket WHERE employee_id = {employee_id}
-   Key cols: ticket_no, description, state, priority, date_closed, project_id
+8. EXPENSES — hr_expense_expense
+   WHERE employee_id = {{employee_id}}
 
-10. COMPANY / DEPARTMENT / TEAM INFO
-    Use for: list departments, my team members, colleagues, who is in my department,
-             org chart, how many employees, department head, team info
-    Tables: hr_department, hr_employee
-    For team: WHERE department_id = (SELECT department_id FROM hr_employee WHERE id = {employee_id})
+9. HELPDESK — helpdesk_support_ticket
+   WHERE employee_id = {{employee_id}}
 
-10a. PROJECTS — list of active company projects
-    Use for: list projects, all projects, which projects, project names, active projects
-    Table: project_project
-    Query: SELECT name FROM project_project WHERE active = TRUE ORDER BY name LIMIT 20
-    No employee filter needed (company-wide data).
+10. PROJECTS — project_project
+    SELECT name FROM project_project WHERE active = TRUE ORDER BY name LIMIT 20
 
-11. PUBLIC HOLIDAYS / COMPANY CALENDAR
-    Use for: is [day/festival] a holiday, can I take leave on [festival name], list holidays,
-             what are the upcoming holidays, is [date] a holiday, Shiva Ratri / Holi / Diwali
-             / Good Friday / Dussehra / any festival name, holiday this month/year
-    Tables:
-      holiday_calendar hc         — location names (Karnataka, Kerala, etc.)
-      holiday_calendar_year hcy   — year entry per location (calendar_id -> holiday_calendar)
-      holiday_calendar_line hcl   — full holiday list per location per year
-        key cols: name (holiday name), date (DATE), year (TEXT e.g. '2026'),
-                  restricted_holiday (FALSE=mandatory public holiday, TRUE=optional/restricted)
-                  calendar_year_id -> holiday_calendar_year
-      optional_holiday_line ohl   — specific optional holidays per location
-        key cols: name, date, holiday_year_id -> holiday_calendar_year
-    ⚠ ALWAYS filter holidays by the employee's holiday_calendar: '{holiday_location}'
-      Do NOT show Karnataka holidays to a Kerala-based employee, or vice versa.
-    ⚠ When searching by FESTIVAL NAME: OMIT the year filter and search BOTH tables with UNION ALL
-      so you do not miss holidays with slightly different spellings or entered in a different year.
-    ⚠ Use broad ILIKE patterns for festival names — the DB spelling may differ:
-        Shivaratri → ILIKE '%shiv%'
-        Holi       → ILIKE '%holi%'
-        Diwali     → ILIKE '%diwal%'
-        Good Friday → ILIKE '%good%friday%' OR ILIKE '%good%'
-        Dussehra   → ILIKE '%duss%' OR ILIKE '%vijaya%'
-    Festival name search pattern (UNION both tables, no year filter):
-      SELECT name, date,
-             CASE WHEN restricted_holiday THEN 'Optional' ELSE 'Public Holiday' END AS type
-      FROM holiday_calendar_line hcl
-      JOIN holiday_calendar_year hcy ON hcl.calendar_year_id = hcy.id
-      JOIN holiday_calendar hc ON hcy.calendar_id = hc.id
-      WHERE hc.name = '{holiday_location}'
-        AND hcl.name ILIKE '%keyword%'
-      UNION ALL
-      SELECT ohl.name, ohl.date, 'Optional' AS type
-      FROM optional_holiday_line ohl
-      JOIN holiday_calendar_year hcy ON ohl.holiday_year_id = hcy.id
-      JOIN holiday_calendar hc ON hcy.calendar_id = hc.id
-      WHERE hc.name = '{holiday_location}'
-        AND ohl.name ILIKE '%keyword%'
-      ORDER BY date
-      LIMIT 10
-    For listing all upcoming holidays this year, omit the name filter:
-      SELECT hcl.name, hcl.date,
-             CASE WHEN hcl.restricted_holiday THEN 'Optional' ELSE 'Public Holiday' END AS type
-      FROM holiday_calendar_line hcl
-      JOIN holiday_calendar_year hcy ON hcl.calendar_year_id = hcy.id
-      JOIN holiday_calendar hc ON hcy.calendar_id = hc.id
-      WHERE hc.name = '{holiday_location}'
-        AND hcl.year = EXTRACT(YEAR FROM CURRENT_DATE)::text
-        AND hcl.date >= CURRENT_DATE
-      ORDER BY hcl.date
-      LIMIT 20
+11. HOLIDAYS — holiday_calendar_line + optional_holiday_line
+    ALWAYS filter by employee's calendar: '{holiday_location}'
+    For festival search (e.g., "Is Diwali a holiday?"), use UNION ALL without year filter:
+    SELECT name, date, 'Public Holiday' AS type FROM holiday_calendar_line hcl
+    JOIN holiday_calendar_year hcy ON hcl.calendar_year_id = hcy.id
+    JOIN holiday_calendar hc ON hcy.calendar_id = hc.id
+    WHERE hc.name = '{holiday_location}' AND hcl.name ILIKE '%keyword%'
+    UNION ALL
+    SELECT name, date, 'Optional' AS type FROM optional_holiday_line ohl
+    JOIN holiday_calendar_year hcy ON ohl.holiday_year_id = hcy.id
+    JOIN holiday_calendar hc ON hcy.calendar_id = hc.id
+    WHERE hc.name = '{holiday_location}' AND ohl.name ILIKE '%keyword%'
+    ORDER BY date LIMIT 10
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OUTPUT RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. Output ONLY the raw SQL query (no markdown, no "SQLQuery:" prefix, no explanation).
-   If no DB query is needed, answer directly in plain text — do NOT output a token.
-2. NEVER generate INSERT / UPDATE / DELETE / DROP / ALTER / TRUNCATE / CREATE / GRANT / REVOKE.
-3. Personal-data queries MUST include an employee isolation filter:
-     • All personal tables except hr_payroll_monthly_line / hr_salary_payment_line:
-         WHERE employee_id = {employee_id}
-     • hr_payroll_monthly_line, hr_salary_payment_line:
-         WHERE emp_id = {employee_id}
-     • holiday_calendar_line, optional_holiday_line, hr_department, hr_designation:
-         NO employee filter needed (company-wide data)
-4. LIMIT list queries to 20 rows. Aggregate (COUNT/SUM/AVG) queries: no LIMIT needed.
-5. Always use explicit table aliases in multi-table queries.
-6. Never use hr_employee.current_ctc — it is always 0. Use hr_payroll_monthly_line.ctc_yearly.
+1. Output ONLY the raw SQL (no markdown, no explanation).
+2. NEVER generate INSERT/UPDATE/DELETE/DROP/ALTER/CREATE.
+3. Personal queries MUST include: WHERE employee_id = {{employee_id}} (or emp_id for payroll).
+4. LIMIT list queries to 20 rows.
+5. Use ₹ for currency in answers.
 
-Current employee context:
+Current employee:
   employee_id      : {employee_id}
   name             : {name}
   emp_code         : {emp_code}
   work_location    : {work_location}
-  holiday_calendar : {holiday_location}  ← use this to filter holiday_calendar.name
+  holiday_calendar : {holiday_location}
 
-Database schema:
+Schema:
 {schema}
 """
 
-_FORMAT_SYSTEM = """\
-You are a concise HR assistant. Answer the employee's question using ONLY the data provided.
+_FORMAT_SYSTEM = """You are a warm HR assistant for JMR Group. Answer employee questions naturally.
 
-Rules:
-- Answer ONLY what was asked. Do not add unrequested information.
-- 1 sentence for single-value answers. Short bullet list only for multiple items.
-- Use ₹ for currency. Use "days" for leave counts.
-- Show zero values too (e.g. "0 days" is still a valid answer — do NOT say "no data found" for zeros).
-- No preamble ("Based on...", "Here is..."), no closing remarks.
-- No markdown bold/italic. Plain text only.
-- If the data list is truly empty (no rows at all):
-    • For holiday/festival queries: say "[Festival] was not found in your company holiday calendar. It may not be a declared holiday for your location, or it may be listed under a different name. Please check with HR."
-    • For all other queries: respond exactly "No [topic] data found. Please contact HR."
-- Never mention SQL, table names, column names, or technical details.
+Guidelines:
+- Be conversational, like chatting with a helpful colleague
+- Use natural phrasing: "You have 5 days" not "Your balance is 5 days"
+- Use ₹ for currency, "days" for leave counts
+- Say "You haven't used any" for zero values
+- Keep responses brief and friendly
+- Never mention SQL, tables, or technical terms
+- Skip phrases like "Based on records" or "According to data"
+
+Empty data responses:
+- Holidays: "[Festival] isn't in your location's holiday calendar. Check with HR to confirm."
+- Other: "I don't see any [topic] records for you. HR can help clarify this."
+
+Match the employee's tone. If they're casual, be casual. If formal, be professional.
 """
 
-
-
-# ---------------------------------------------------------------------------
-# LLM client (singleton)
-# ---------------------------------------------------------------------------
 
 @lru_cache(maxsize=1)
 def _get_llm() -> ChatOpenAI:
@@ -394,12 +224,7 @@ def _get_llm() -> ChatOpenAI:
     )
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 def _clean_sql(text: str) -> str:
-    """Strip markdown fences and common LLM prefixes from SQL output."""
     text = text.strip()
     text = re.sub(r'^```(?:sql)?\s*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'\s*```$', '', text)
@@ -407,25 +232,21 @@ def _clean_sql(text: str) -> str:
     return text.strip()
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
 def generate_sql_or_answer(
     user_message: str,
     employee_info: dict,
     history: list[dict] | None = None,
 ) -> tuple[str | None, str | None]:
     """
-    Ask the LLM whether database data is needed.
-
+    Ask LLM to generate SQL or answer directly.
+    
     Returns:
-        (sql_string, None)    — LLM wants to query the DB
-        (None, answer_string) — LLM can answer directly (general knowledge / greetings)
-        (None, None)          — LLM returned DIRECT_ANSWER but no text (caller uses fallback)
+        (sql, None)    — SQL query to execute
+        (None, answer) — Direct answer (greeting, policy, etc.)
     """
     work_location = employee_info.get('work_location') or ''
     holiday_location = _resolve_holiday_location(work_location)
+    
     system = _SQL_SYSTEM.format(
         employee_id=employee_info['employee_id'],
         name=employee_info.get('name', ''),
@@ -437,7 +258,6 @@ def generate_sql_or_answer(
 
     messages: list = [SystemMessage(content=system)]
 
-    # Include last 6 turns of chat history for context
     for turn in (history or [])[-6:]:
         role = turn.get('role')
         content = turn.get('content', '')
@@ -448,22 +268,24 @@ def generate_sql_or_answer(
 
     messages.append(HumanMessage(content=user_message))
 
-    raw = _get_llm().invoke(messages).content.strip()
-    logger.info('[LLM_RAW] %r', raw[:500])
+    try:
+        raw = _get_llm().invoke(messages).content.strip()
+    except Exception as exc:
+        logger.exception('[LLM_ERROR] generate_sql_or_answer: %s', exc)
+        return None, 'I encountered an error. Please try again.'
+
+    logger.debug('[LLM_RAW] %r', raw[:300])
 
     cleaned = _clean_sql(raw)
     if cleaned.upper().startswith('SELECT'):
         return cleaned, None
 
-    # LLM sometimes prefixes SQL with conversational text — extract just the SQL
     select_match = re.search(r'(?i)\bSELECT\b', raw)
     if select_match:
         sql_candidate = _clean_sql(raw[select_match.start():])
         if sql_candidate.upper().startswith('SELECT'):
-            logger.info('[LLM_PREAMBLE_STRIPPED] extracted SQL from mixed response')
             return sql_candidate, None
 
-    # LLM answered directly (greeting, policy question, etc.)
     return None, raw
 
 
@@ -473,17 +295,18 @@ def format_result(
     employee_info: dict,
 ) -> str:
     """
-    Ask the LLM to turn query results into natural language.
-    Returns a human-readable answer string.
+    Convert query results to natural language.
     """
-    # Always send to LLM — even empty rows — so _FORMAT_SYSTEM can give a
-    # context-aware message (e.g. holiday-specific hint vs generic not-found).
     human = f'Question: {user_message}\nData: {rows[:25]}'
     messages = [
         SystemMessage(content=_FORMAT_SYSTEM),
         HumanMessage(content=human),
     ]
-    return _get_llm().invoke(messages).content.strip()
-
-
-
+    
+    try:
+        return _get_llm().invoke(messages).content.strip()
+    except Exception as exc:
+        logger.exception('[LLM_ERROR] format_result: %s', exc)
+        if rows:
+            return f'Found {len(rows)} records.'
+        return 'I apologize, but I do not have that information available. Please contact HR for assistance.'
